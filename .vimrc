@@ -53,7 +53,7 @@ set noshowmode
 if !has('gui_running')
    set t_Co=256
  endif
-set noshowmode
+" let g:lightline = {'colorscheme': 'wombat',}
 
 "colorscheme apprentice
 " let g:rainbow_active = 1 " Rainbow brackets
