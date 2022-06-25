@@ -1,3 +1,13 @@
+" Prevent a user from using arrow keys
+noremap <Up> <NOP>
+noremap <Down> <NOP>
+noremap <Left> <NOP>
+noremap <Right> <NOP>
+imap <Up> <NOP>
+imap <Down> <NOP>
+imap <Left> <NOP>
+imap <Right> <NOP>
+
 " Tabs and text formatting stuff
 set expandtab
 set tabstop=4
@@ -31,10 +41,11 @@ colorscheme solarized8
 "nnoremap <C-n> :NERDTree<CR>
 "nnoremap <C-t> :NERDTreeToggle<CR>
 "nnoremap <C-f> :NERDTreeFind<CR>
-autocmd VimEnter * ++nested NERDTree | wincmd p " ++nested to solve lightline conflict
-autocmd BufEnter * if tabpagenr('$') == 1 && winnr('$') == 1 && exists('b:NERDTree') && b:NERDTree.isTabTree() | quit | endif
-let g:NERDTreeWinPos = "right"
-let NERDTreeShowHidden=1
+"
+"autocmd VimEnter * ++nested NERDTree | wincmd p " ++nested to solve lightline conflict
+"autocmd BufEnter * if tabpagenr('$') == 1 && winnr('$') == 1 && exists('b:NERDTree') && b:NERDTree.isTabTree() | quit | endif
+"let g:NERDTreeWinPos = "right"
+"let NERDTreeShowHidden=1
 
 " Syntastic settings
 set statusline+=%#warningmsg#
