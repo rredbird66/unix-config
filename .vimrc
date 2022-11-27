@@ -1,12 +1,12 @@
 " Prevent a user from using arrow keys
-noremap <Up> <NOP>
-noremap <Down> <NOP>
-noremap <Left> <NOP>
-noremap <Right> <NOP>
-imap <Up> <NOP>
-imap <Down> <NOP>
-imap <Left> <NOP>
-imap <Right> <NOP>
+"noremap <Up> <NOP>
+"noremap <Down> <NOP>
+"noremap <Left> <NOP>
+"noremap <Right> <NOP>
+"imap <Up> <NOP>
+"imap <Down> <NOP>
+"imap <Left> <NOP>
+"imap <Right> <NOP>
 
 " Tabs and text formatting stuff
 set expandtab
@@ -26,9 +26,9 @@ Plugin 'ryanoasis/vim-devicons'                     " NERDTree custom folder and
 Plugin 'tiagofumo/vim-nerdtree-syntax-highlight'    " NERDTree smth
 Plugin 'itchyny/lightline.vim'                      " Custom status line
 Plugin 'rafi/awesome-vim-colorschemes'              " More colorschemes for colorschemes god
-Plugin 'vim-syntastic/syntastic'                    " Syntax error highlighter
-Plugin 'tpope/vim-fugitive'                         " Smth for git
-Plugin 'vshih/vim-make'                             " Smth for make
+"Plugin 'vim-syntastic/syntastic'                    " Syntax error highlighter
+"Plugin 'tpope/vim-fugitive'                         " Smth for git
+"Plugin 'vshih/vim-make'                             " Smth for make
 call vundle#end()
 filetype plugin indent on
 
