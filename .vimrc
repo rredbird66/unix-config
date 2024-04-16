@@ -8,6 +8,9 @@
 "imap <Left> <NOP>
 "imap <Right> <NOP>
 
+syntax on
+set backspace=indent,eol,start " vim 9+
+
 " Tabs and text formatting stuff
 set expandtab
 set tabstop=4
