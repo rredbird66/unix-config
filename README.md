@@ -244,3 +244,18 @@ HOME="$tmp" ./vim/setup.sh --check
 - SSH-пример не устанавливается и не меняет `~/.ssh/config`.
 - `sudo` используется только в `scripts/packages.sh` для `dnf install`.
 - Скрипт не публикует изменения и не настраивает git remote.
+
+## Батарея: снимок состояния
+
+Разовый замер батареи этой машины для сравнения с будущими показаниями:
+
+```text
+model:                R15B06W
+state:                discharging
+energy-full:          60.231 Wh
+energy-full-design:   72.012 Wh
+energy-rate:          8.716 W
+charge-cycles:        N/A
+percentage:           78%
+capacity:             83.6402%
+```
