@@ -20,6 +20,13 @@ SSH-пример, Oh My Posh) с настройками GNOME. Всё разво
 | `Makefile` | команды `make help/setup/packages/shell/vim/...` |
 | `scripts/` | меню `make setup`, установка пакетов, диагностика и отчёт о состоянии батареи |
 | `tests/gnome.sh` | проверки `settings.sh` в изолированном профиле |
+| `manuals/` | шпаргалки по утилитам, Vim и Linux |
+
+## Шпаргалки
+
+- [Терминальные утилиты: tmux, rg, fd, fzf, zoxide](manuals/utilities.md)
+- [Vim: основные команды и управление](manuals/vim.md)
+- [Linux: файлы, пользователи, службы, Docker и cron](manuals/linux.md)
 
 ## Зависимости
 
