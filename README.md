@@ -24,9 +24,11 @@ SSH-пример, Oh My Posh) с настройками GNOME. Всё разво
 
 ## Шпаргалки
 
-- [Терминальные утилиты: tmux, rg, fd, fzf, zoxide](manuals/utilities.md)
+- [Терминальные утилиты: SSH, поиск, навигация и мониторы](manuals/utilities.md)
 - [Vim: основные команды и управление](manuals/vim.md)
-- [Linux: файлы, пользователи, службы, Docker и cron](manuals/linux.md)
+- [Bash и файловые команды](manuals/linux.md)
+- [Архивы: tar, ZIP и ar](manuals/archives.md)
+- [Системное администрирование: пакеты, диски, службы и Docker](manuals/system.md)
 
 ## Зависимости
 
