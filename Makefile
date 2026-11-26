@@ -1,13 +1,14 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help all packages extras shell shell-check vim vim-check status apply undo battery doctor settings-check check test
+.PHONY: help all setup packages extras shell shell-check vim vim-check status apply undo battery doctor settings-check check test
 
 help:
 	@printf '%s\n' \
 		'linux-settings — настройки Fedora 45 / GNOME Wayland / Ptyxis' \
 		'' \
 		'  make help          показать эту справку (цель по умолчанию)' \
+		'  make setup         интерактивное меню по категориям (нужен dialog и TTY)' \
 		'  make packages      проверить vim-enhanced, mc, htop и поставить недостающие через dnf' \
 		'  make extras        поставить недостающие ripgrep, fd-find, fzf, zoxide, btop и tmux' \
 		'  make shell         установить Starship и управляемый блок в ~/.bashrc' \
@@ -25,6 +26,9 @@ help:
 		'Подробности и ручная проверка — в README.md.'
 
 all: shell vim
+
+setup:
+	@./scripts/setup.sh
 
 packages:
 	@./scripts/packages.sh
