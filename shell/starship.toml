@@ -1,0 +1,25 @@
+# linux-settings: подсказка в две строки, символы без Nerd Font.
+format = """
+$directory$git_branch$python
+$character"""
+
+[directory]
+style = "bold blue"
+truncation_length = 3
+truncate_to_repo = true
+
+[git_branch]
+style = "bold purple"
+format = " [$branch]($style)"
+
+[python]
+# Показываем только активное виртуальное окружение, без иконок и версии Python.
+style = "bold yellow"
+format = " [venv:$virtualenv]($style)"
+detect_extensions = []
+detect_files = []
+python_binary = ["python3", "python"]
+
+[character]
+success_symbol = "[>](bold green)"
+error_symbol = "[!](bold red)"
