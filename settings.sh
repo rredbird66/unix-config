@@ -30,6 +30,9 @@ readonly MAX_CUSTOM_INDEX=99
 
 readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/linux-settings"
 readonly STATE_FILE="$STATE_DIR/state.sh"
+readonly LOCK_DIR="$STATE_DIR/lock"
+
+readonly KB_PATH_RE="^${KB_ROOT}custom[0-9]+/$"
 
 usage() {
    cat <<'EOF'
@@ -171,9 +174,7 @@ get_entry_value() {
    local key=$2
    local raw
 
-   if ! raw=$(gsettings get "${KB_SCHEMA}:${path}" "$key" 2>/dev/null); then
-      return 1
-   fi
+   raw=$(gsettings get "${KB_SCHEMA}:${path}" "$key") || return 1
    unquote_gvariant "$raw"
 }
 
@@ -252,13 +253,19 @@ scan_custom_bindings() {
    OWNED_MODIFIED_COMMAND=''
 
    for path in "${CUSTOM_PATHS[@]}"; do
-      binding=$(get_entry_value "$path" binding || true)
+      if ! binding=$(get_entry_value "$path" binding); then
+         die "не удалось прочитать binding ярлыка $path. Ничего не изменено."
+      fi
       if ! binding_eq "$binding" "$TARGET_BINDING"; then
          continue
       fi
 
-      command=$(get_entry_value "$path" command || true)
-      name=$(get_entry_value "$path" name || true)
+      if ! command=$(get_entry_value "$path" command); then
+         die "не удалось прочитать command ярлыка $path. Ничего не изменено."
+      fi
+      if ! name=$(get_entry_value "$path" name); then
+         die "не удалось прочитать name ярлыка $path. Ничего не изменено."
+      fi
 
       if command_eq "$command"; then
          if [[ -z $SUITABLE_PATH ]]; then
@@ -281,6 +288,7 @@ scan_custom_bindings() {
 
 # Ищет свободный слот customN, начиная с custom1. Путь считается занятым,
 # если он есть в списке или если в нём уже лежат непустые значения.
+# Ошибка чтения GSettings не считается пустым слотом.
 find_free_custom_path() {
    local list=$1
    local skip_path=${2:-}
@@ -295,9 +303,15 @@ find_free_custom_path() {
          continue
       fi
 
-      name=$(get_entry_value "$path" name || true)
-      command=$(get_entry_value "$path" command || true)
-      binding=$(get_entry_value "$path" binding || true)
+      if ! name=$(get_entry_value "$path" name); then
+         die "не удалось прочитать name ярлыка $path. Ничего не изменено."
+      fi
+      if ! command=$(get_entry_value "$path" command); then
+         die "не удалось прочитать command ярлыка $path. Ничего не изменено."
+      fi
+      if ! binding=$(get_entry_value "$path" binding); then
+         die "не удалось прочитать binding ярлыка $path. Ничего не изменено."
+      fi
       if [[ -z $name && -z $command && -z $binding ]]; then
          printf '%s' "$path"
          return 0
@@ -318,8 +332,12 @@ check_owned_entry() {
    OWNED_MATCHES=0
    if [[ $KB_MODE == 'created' && -n $KB_PATH ]] && custom_list_has_path "$list" "$KB_PATH"; then
       OWNED_ACTIVE=1
-      binding=$(get_entry_value "$KB_PATH" binding || true)
-      command=$(get_entry_value "$KB_PATH" command || true)
+      if ! binding=$(get_entry_value "$KB_PATH" binding); then
+         die "не удалось прочитать binding ярлыка $KB_PATH. Ничего не изменено."
+      fi
+      if ! command=$(get_entry_value "$KB_PATH" command); then
+         die "не удалось прочитать command ярлыка $KB_PATH. Ничего не изменено."
+      fi
       if binding_eq "$binding" "$TARGET_BINDING" && command_eq "$command"; then
          OWNED_MATCHES=1
       fi
@@ -338,6 +356,33 @@ KB_NAME=''
 KB_COMMAND=''
 KB_BINDING=''
 
+# Раскодирует значение, записанное printf %q. Это данные, не код: ничего не
+# выполняется через source/eval. Пустая строка может быть записана как ''.
+state_decode() {
+   local raw=$1
+   local out=''
+   local i ch
+
+   if [[ $raw == "''" ]]; then
+      printf ''
+      return 0
+   fi
+   if [[ ${raw:0:2} == "\$'" ]]; then
+      return 1
+   fi
+
+   for ((i = 0; i < ${#raw}; i++)); do
+      ch=${raw:i:1}
+      if [[ $ch == '\' ]]; then
+         i=$((i + 1))
+         ((${#raw} > i)) || return 1
+         ch=${raw:i:1}
+      fi
+      out+=$ch
+   done
+   printf '%s' "$out"
+}
+
 load_state() {
    STATE_VERSION=0
    XKB_ADDED=0
@@ -347,26 +392,86 @@ load_state() {
    KB_COMMAND=''
    KB_BINDING=''
 
-   if [[ -f $STATE_FILE ]]; then
-      # shellcheck disable=SC1090
-      source "$STATE_FILE"
-      if [[ ${STATE_VERSION:-0} != 1 ]]; then
-         die "неизвестный формат файла состояния: $STATE_FILE"
+   [[ -e $STATE_FILE ]] || return 0
+   [[ -f $STATE_FILE && -r $STATE_FILE ]] ||
+      die "не удалось прочитать файл состояния: $STATE_FILE"
+
+   local line key raw value version_seen=0
+   while IFS= read -r line || [[ -n $line ]]; do
+      [[ -z $line || $line == \#* ]] && continue
+      if [[ ! $line =~ ^([A-Z_][A-Z0-9_]*)=(.*)$ ]]; then
+         # Неизвестные строки не выполняются и не влияют на настройки.
+         continue
       fi
-      [[ -n ${KB_MODE:-} ]] || KB_MODE='none'
-      [[ -n ${XKB_ADDED:-} ]] || XKB_ADDED=0
+      key=${BASH_REMATCH[1]}
+      raw=${BASH_REMATCH[2]}
+      case $key in
+         STATE_VERSION | XKB_ADDED | KB_MODE | KB_PATH | KB_NAME | KB_COMMAND | KB_BINDING) ;;
+         *) continue ;;
+      esac
+      if ! value=$(state_decode "$raw"); then
+         die "повреждён файл состояния $STATE_FILE: не удалось разобрать $key"
+      fi
+      ((${#value} <= 4096)) ||
+         die "повреждён файл состояния $STATE_FILE: слишком длинное значение $key"
+
+      case $key in
+         STATE_VERSION)
+            [[ $value == '1' ]] ||
+               die "неизвестный формат файла состояния: $STATE_FILE"
+            STATE_VERSION=1
+            version_seen=1
+            ;;
+         XKB_ADDED)
+            case $value in
+               '' | 0) XKB_ADDED=0 ;;
+               1) XKB_ADDED=1 ;;
+               *) die "повреждён файл состояния $STATE_FILE: XKB_ADDED=$value" ;;
+            esac
+            ;;
+         KB_MODE)
+            value=${value:-none}
+            case $value in
+               none | created | preexisting) KB_MODE=$value ;;
+               *) die "повреждён файл состояния $STATE_FILE: KB_MODE=$value" ;;
+            esac
+            ;;
+         KB_PATH) KB_PATH=$value ;;
+         KB_NAME) KB_NAME=$value ;;
+         KB_COMMAND) KB_COMMAND=$value ;;
+         KB_BINDING) KB_BINDING=$value ;;
+      esac
+   done <"$STATE_FILE"
+
+   ((version_seen)) ||
+      die "неизвестный формат файла состояния (нет STATE_VERSION=1): $STATE_FILE"
+   if [[ -n $KB_PATH && ! $KB_PATH =~ $KB_PATH_RE ]]; then
+      die "повреждён файл состояния $STATE_FILE: недопустимый KB_PATH"
+   fi
+   if [[ $KB_MODE != 'none' && -z $KB_PATH ]]; then
+      die "повреждён файл состояния $STATE_FILE: для KB_MODE=$KB_MODE нет KB_PATH"
    fi
 }
 
+# Возвращает 1 при ошибке, не завершая процесс: вызывающий решает, можно ли
+# откатить уже сделанные изменения.
 save_state() {
    local tmp
 
-   mkdir -p "$STATE_DIR" || die "не удалось создать каталог состояния $STATE_DIR"
-   chmod 700 "$STATE_DIR" || die "не удалось выставить права на $STATE_DIR"
-   tmp=$(mktemp "$STATE_DIR/state.XXXXXX") ||
-      die "не удалось создать временный файл состояния в $STATE_DIR"
+   if ! mkdir -p -- "$STATE_DIR"; then
+      warn "не удалось создать каталог состояния $STATE_DIR"
+      return 1
+   fi
+   if ! chmod 700 -- "$STATE_DIR"; then
+      warn "не удалось выставить права на $STATE_DIR"
+      return 1
+   fi
+   tmp=$(mktemp "$STATE_DIR/state.XXXXXX") || {
+      warn "не удалось создать временный файл состояния в $STATE_DIR"
+      return 1
+   }
 
-   {
+   if ! {
       printf 'STATE_VERSION=1\n'
       printf 'XKB_ADDED=%q\n' "$XKB_ADDED"
       printf 'KB_MODE=%q\n' "$KB_MODE"
@@ -374,10 +479,83 @@ save_state() {
       printf 'KB_NAME=%q\n' "$KB_NAME"
       printf 'KB_COMMAND=%q\n' "$KB_COMMAND"
       printf 'KB_BINDING=%q\n' "$KB_BINDING"
-   } >"$tmp" || die "не удалось записать файл состояния $tmp"
+   } >"$tmp"; then
+      rm -f -- "$tmp"
+      warn "не удалось записать файл состояния $tmp"
+      return 1
+   fi
 
-   chmod 600 "$tmp" || die "не удалось выставить права на $tmp"
-   mv -f "$tmp" "$STATE_FILE" || die "не удалось сохранить файл состояния $STATE_FILE"
+   if ! chmod 600 -- "$tmp"; then
+      rm -f -- "$tmp"
+      warn "не удалось выставить права на $tmp"
+      return 1
+   fi
+   if ! mv -f -- "$tmp" "$STATE_FILE"; then
+      rm -f -- "$tmp"
+      warn "не удалось сохранить файл состояния $STATE_FILE"
+      return 1
+   fi
+   return 0
+}
+
+# ---------------------------------------------------------------------------
+# Блокировка от одновременных apply/undo
+# ---------------------------------------------------------------------------
+
+LOCK_HELD=0
+
+release_lock() {
+   if ((LOCK_HELD)); then
+      LOCK_HELD=0
+      rm -rf -- "$LOCK_DIR"
+   fi
+}
+
+cleanup() {
+   release_lock
+}
+trap cleanup EXIT INT TERM
+
+acquire_lock() {
+   local tries=0 pid stale
+
+   mkdir -p -- "$STATE_DIR" ||
+      die "не удалось создать каталог состояния $STATE_DIR"
+   chmod 700 -- "$STATE_DIR" ||
+      die "не удалось выставить права на $STATE_DIR"
+
+   while ! mkdir -- "$LOCK_DIR" 2>/dev/null; do
+      if [[ -e $LOCK_DIR && ! -d $LOCK_DIR ]]; then
+         die "$LOCK_DIR существует и не является каталогом блокировки."
+      fi
+      if [[ -f $LOCK_DIR/pid ]]; then
+         pid=$(cat -- "$LOCK_DIR/pid" 2>/dev/null || true)
+         if [[ $pid =~ ^[0-9]+$ ]] && ! kill -0 "$pid" 2>/dev/null; then
+            stale="$LOCK_DIR.stale.$$"
+            if mv -- "$LOCK_DIR" "$stale" 2>/dev/null; then
+               rm -rf -- "$stale"
+               continue
+            fi
+         fi
+      elif find "$LOCK_DIR" -maxdepth 0 -mmin +1 -print -quit 2>/dev/null | grep -q .; then
+         stale="$LOCK_DIR.stale.$$"
+         if mv -- "$LOCK_DIR" "$stale" 2>/dev/null; then
+            rm -rf -- "$stale"
+            continue
+         fi
+      fi
+      tries=$((tries + 1))
+      if ((tries >= 100)); then
+         die "другая копия settings.sh уже выполняется (блокировка $LOCK_DIR)."
+      fi
+      sleep 0.1
+   done
+
+   if ! printf '%s\n' "$$" >"$LOCK_DIR/pid"; then
+      rm -rf -- "$LOCK_DIR"
+      die "не удалось записать идентификатор блокировки $LOCK_DIR/pid"
+   fi
+   LOCK_HELD=1
 }
 
 # ---------------------------------------------------------------------------
@@ -457,15 +635,20 @@ cmd_status() {
 # apply
 # ---------------------------------------------------------------------------
 
+key_failure() {
+   local message=$1
+   if [[ -f $STATE_FILE ]]; then
+      die "$message. Сведения об уже сделанных изменениях сохранены; выполните ./settings.sh undo."
+   fi
+   die "$message. Ничего не изменено."
+}
+
 cmd_apply() {
    require_gsettings
    require_ptyxis
    require_custom_schema
 
-   local state_present=0
-   if [[ -f $STATE_FILE ]]; then
-      state_present=1
-   fi
+   acquire_lock
    load_state
 
    local xkb_before
@@ -520,8 +703,17 @@ cmd_apply() {
          die "не удалось записать $XKB_KEY. Ничего не изменено."
       fi
       XKB_ADDED=1
-      state_dirty=1
       changes=1
+      # Сначала фиксируем изменение на диске, чтобы undo знал о нём даже при
+      # последующем сбое при создании ярлыка.
+      if ! save_state; then
+         if gsettings set "$XKB_SCHEMA" "$XKB_KEY" "$xkb_before"; then
+            XKB_ADDED=0
+            changes=0
+            die "не удалось сохранить сведения об изменениях; изменение XKB отменено. Ничего не изменено."
+         fi
+         die "не удалось сохранить сведения об изменениях; XKB изменён, но откат не удался. Проверьте $XKB_KEY вручную."
+      fi
       say "Раскладка: добавлен grp:alt_shift_toggle (Alt+Shift)."
    else
       say "Раскладка: grp:alt_shift_toggle уже присутствует, изменений нет."
@@ -540,17 +732,33 @@ cmd_apply() {
          state_dirty=1
       fi
    elif ((create_kb)); then
+      # Запись состояния заранее: если запись полей или списка не удастся,
+      # undo всё равно будет знать путь и ожидаемые значения.
+      KB_MODE='created'
+      KB_PATH=$new_path
+      KB_NAME=$TARGET_NAME
+      KB_COMMAND=$TARGET_COMMAND
+      KB_BINDING=$TARGET_BINDING
+      if ! save_state; then
+         KB_MODE='none'
+         KB_PATH=''
+         KB_NAME=''
+         KB_COMMAND=''
+         KB_BINDING=''
+         key_failure "не удалось сохранить сведения о новом ярлыке ${new_path}; ярлык не активирован"
+      fi
+
       if ! gsettings set "${KB_SCHEMA}:${new_path}" name "$(gvariant_string "$TARGET_NAME")"; then
-         die "не удалось записать имя ярлыка ${new_path}. Ничего не изменено."
+         key_failure "не удалось записать имя ярлыка ${new_path}; ярлык не активирован"
       fi
       if ! gsettings set "${KB_SCHEMA}:${new_path}" command "$(gvariant_string "$TARGET_COMMAND")"; then
          gsettings reset "${KB_SCHEMA}:${new_path}" name >/dev/null 2>&1 || true
-         die "не удалось записать команду ярлыка ${new_path}. Изменения отменены."
+         key_failure "не удалось записать команду ярлыка ${new_path}; ярлык не активирован"
       fi
       if ! gsettings set "${KB_SCHEMA}:${new_path}" binding "$(gvariant_string "$TARGET_BINDING")"; then
          gsettings reset "${KB_SCHEMA}:${new_path}" name >/dev/null 2>&1 || true
          gsettings reset "${KB_SCHEMA}:${new_path}" command >/dev/null 2>&1 || true
-         die "не удалось записать сочетание ярлыка ${new_path}. Изменения отменены."
+         key_failure "не удалось записать сочетание ярлыка ${new_path}; ярлык не активирован"
       fi
 
       local new_list
@@ -559,21 +767,17 @@ cmd_apply() {
          gsettings reset "${KB_SCHEMA}:${new_path}" name >/dev/null 2>&1 || true
          gsettings reset "${KB_SCHEMA}:${new_path}" command >/dev/null 2>&1 || true
          gsettings reset "${KB_SCHEMA}:${new_path}" binding >/dev/null 2>&1 || true
-         die "не удалось добавить ${new_path} в ${MEDIA_KEY}. Ярлык не активирован."
+         key_failure "не удалось добавить ${new_path} в ${MEDIA_KEY}; ярлык не активирован"
       fi
 
-      KB_MODE='created'
-      KB_PATH=$new_path
-      KB_NAME=$TARGET_NAME
-      KB_COMMAND=$TARGET_COMMAND
-      KB_BINDING=$TARGET_BINDING
-      state_dirty=1
       changes=1
       say "Терминал: создан ярлык ${new_path} (Alt+T → ${TARGET_COMMAND})."
    fi
 
-   if ((!state_present || state_dirty)); then
-      save_state
+   if ((state_dirty)); then
+      if ! save_state; then
+         die "не удалось сохранить сведения об изменениях в $STATE_FILE"
+      fi
       say "Сведения об изменениях сохранены: $STATE_FILE"
    fi
 
@@ -595,16 +799,13 @@ cmd_undo() {
    fi
 
    require_gsettings
+   acquire_lock
+
+   if [[ ! -f $STATE_FILE ]]; then
+      say "Нечего откатывать: сведения об изменениях уже удалены."
+      return 0
+   fi
    load_state
-
-   if [[ $KB_MODE == 'created' && -n $KB_PATH ]]; then
-      require_custom_schema
-   fi
-
-   local custom_list
-   if ! custom_list=$(get_custom_list); then
-      die "не удалось прочитать $MEDIA_SCHEMA $MEDIA_KEY"
-   fi
 
    if [[ ${XKB_ADDED:-0} == 1 ]]; then
       local current
@@ -626,30 +827,67 @@ cmd_undo() {
    fi
 
    if [[ $KB_MODE == 'created' && -n $KB_PATH ]]; then
-      if custom_list_has_path "$custom_list" "$KB_PATH"; then
-         local binding command name
-         binding=$(get_entry_value "$KB_PATH" binding || true)
-         command=$(get_entry_value "$KB_PATH" command || true)
-         name=$(get_entry_value "$KB_PATH" name || true)
+      require_custom_schema
 
+      local custom_list
+      if ! custom_list=$(get_custom_list); then
+         die "не удалось прочитать $MEDIA_SCHEMA $MEDIA_KEY"
+      fi
+
+      local binding command name
+      if ! binding=$(get_entry_value "$KB_PATH" binding); then
+         die "не удалось прочитать binding ярлыка $KB_PATH; состояние сохранено"
+      fi
+      if ! command=$(get_entry_value "$KB_PATH" command); then
+         die "не удалось прочитать command ярлыка $KB_PATH; состояние сохранено"
+      fi
+      if ! name=$(get_entry_value "$KB_PATH" name); then
+         die "не удалось прочитать name ярлыка $KB_PATH; состояние сохранено"
+      fi
+
+      if custom_list_has_path "$custom_list" "$KB_PATH"; then
          if [[ $binding == "$KB_BINDING" && $command == "$KB_COMMAND" && $name == "$KB_NAME" ]]; then
             local new_list
             new_list=$(custom_list_remove_path "$custom_list" "$KB_PATH")
             if ! gsettings set "$MEDIA_SCHEMA" "$MEDIA_KEY" "$new_list"; then
                die "не удалось убрать ${KB_PATH} из ${MEDIA_KEY}"
             fi
+            # Если сброс поля не удался, state остаётся и следующий undo
+            # продолжит с того места, где путь уже убран из списка.
             gsettings reset "${KB_SCHEMA}:${KB_PATH}" name ||
-               die "не удалось сбросить name ярлыка ${KB_PATH}"
+               die "не удалось сбросить name ярлыка ${KB_PATH}; состояние сохранено"
             gsettings reset "${KB_SCHEMA}:${KB_PATH}" command ||
-               die "не удалось сбросить command ярлыка ${KB_PATH}"
+               die "не удалось сбросить command ярлыка ${KB_PATH}; состояние сохранено"
             gsettings reset "${KB_SCHEMA}:${KB_PATH}" binding ||
-               die "не удалось сбросить binding ярлыка ${KB_PATH}"
+               die "не удалось сбросить binding ярлыка ${KB_PATH}; состояние сохранено"
             say "Терминал: удалён созданный скриптом ярлык ${KB_PATH}."
          else
             say "Терминал: созданный скриптом ярлык изменён вручную — оставляю как есть."
          fi
       else
-         say "Терминал: созданного скриптом ярлыка уже нет — оставляю список как есть."
+         # Путь уже удалён из списка (например, предыдущий undo прервался
+         # после этого шага). Дочищаем только совпадающие с нашими поля.
+         local cleaned=0
+         if [[ $name == "$KB_NAME" ]]; then
+            gsettings reset "${KB_SCHEMA}:${KB_PATH}" name ||
+               die "не удалось сбросить name ярлыка ${KB_PATH}; состояние сохранено"
+            cleaned=1
+         fi
+         if [[ $command == "$KB_COMMAND" ]]; then
+            gsettings reset "${KB_SCHEMA}:${KB_PATH}" command ||
+               die "не удалось сбросить command ярлыка ${KB_PATH}; состояние сохранено"
+            cleaned=1
+         fi
+         if [[ $binding == "$KB_BINDING" ]]; then
+            gsettings reset "${KB_SCHEMA}:${KB_PATH}" binding ||
+               die "не удалось сбросить binding ярлыка ${KB_PATH}; состояние сохранено"
+            cleaned=1
+         fi
+         if ((cleaned)); then
+            say "Терминал: очищены оставшиеся поля ярлыка ${KB_PATH}."
+         else
+            say "Терминал: созданного скриптом ярлыка уже нет — оставляю список как есть."
+         fi
       fi
    elif [[ $KB_MODE == 'preexisting' ]]; then
       say "Терминал: ярлык был настроен до запуска скрипта — оставляю как есть."
