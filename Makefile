@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help all packages shell shell-check vim vim-check status apply undo battery settings-check check
+.PHONY: help all packages extras shell shell-check vim vim-check status apply undo battery doctor settings-check check test
 
 help:
 	@printf '%s\n' \
@@ -9,6 +9,7 @@ help:
 		'' \
 		'  make help          показать эту справку (цель по умолчанию)' \
 		'  make packages      проверить vim-enhanced, mc, htop и поставить недостающие через dnf' \
+		'  make extras        поставить недостающие ripgrep, fd-find, fzf, zoxide, btop и tmux' \
 		'  make shell         установить Starship и управляемый блок в ~/.bashrc' \
 		'  make shell-check   проверить установку Starship без изменений' \
 		'  make vim           установить ~/.vimrc, если его ещё нет' \
@@ -17,7 +18,9 @@ help:
 		'  make apply         ./settings.sh apply (GNOME, без sudo)' \
 		'  make undo          ./settings.sh undo' \
 		'  make battery       показать текущие данные батареи из UPower' \
+		'  make doctor        проверить пакеты, Bash, Vim и GNOME, показать резервные копии' \
 		'  make check         проверить синтаксис скриптов' \
+		'  make test          проверить настройки GNOME в изолированном профиле' \
 		'' \
 		'Подробности и ручная проверка — в README.md.'
 
@@ -25,6 +28,9 @@ all: shell vim
 
 packages:
 	@./scripts/packages.sh
+
+extras:
+	@./scripts/packages.sh --extras
 
 shell:
 	@./shell/setup.sh
@@ -50,10 +56,16 @@ undo:
 battery:
 	@./scripts/battery.sh
 
+doctor:
+	@./scripts/doctor.sh
+
 settings-check:
-	@for script in settings.sh shell/setup.sh vim/setup.sh scripts/*.sh; do \
+	@for script in settings.sh shell/setup.sh vim/setup.sh scripts/*.sh tests/*.sh; do \
 		bash -n "$$script" || exit; \
 	done
 
 check: settings-check
 	@printf '%s\n' 'Синтаксис скриптов в порядке.'
+
+test: check
+	@./tests/gnome.sh

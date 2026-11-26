@@ -299,13 +299,24 @@ make_block() {
    cat >"$block" <<'EOF'
 # >>> linux-settings starship >>>
 # Управляется linux-settings (make shell); не редактируйте блок вручную.
-if [[ $- == *i* && -x $HOME/.local/bin/starship &&
-      -r ${STARSHIP_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml} ]]; then
-    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-        export PATH="$HOME/.local/bin:$PATH"
+if [[ $- == *i* ]]; then
+    if [[ -x $HOME/.local/bin/starship &&
+          -r ${STARSHIP_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml} ]]; then
+        if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+            export PATH="$HOME/.local/bin:$PATH"
+        fi
+        export STARSHIP_CONFIG="${STARSHIP_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml}"
+        eval "$("$HOME/.local/bin/starship" init bash)"
     fi
-    export STARSHIP_CONFIG="${STARSHIP_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml}"
-    eval "$("$HOME/.local/bin/starship" init bash)"
+
+    if command -v fzf >/dev/null && ! declare -F __fzf_history__ >/dev/null; then
+        # По умолчанию подключаем Ctrl+R; настройки других клавиш пользователя сохраняем.
+        FZF_CTRL_T_COMMAND="${FZF_CTRL_T_COMMAND-}" FZF_ALT_C_COMMAND="${FZF_ALT_C_COMMAND-}" \
+            eval "$(fzf --bash)"
+    fi
+    if command -v zoxide >/dev/null && ! type -t z >/dev/null && ! type -t zi >/dev/null; then
+        eval "$(zoxide init bash)"
+    fi
 fi
 # <<< linux-settings starship <<<
 EOF
