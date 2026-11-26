@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help all packages shell shell-check vim vim-check status apply undo settings-check check
+.PHONY: help all packages shell shell-check vim vim-check status apply undo battery settings-check check
 
 help:
 	@printf '%s\n' \
@@ -16,6 +16,7 @@ help:
 		'  make status        ./settings.sh status (только чтение)' \
 		'  make apply         ./settings.sh apply (GNOME, без sudo)' \
 		'  make undo          ./settings.sh undo' \
+		'  make battery       показать текущие данные батареи из UPower' \
 		'  make check         проверить синтаксис скриптов' \
 		'' \
 		'Подробности и ручная проверка — в README.md.'
@@ -46,8 +47,11 @@ apply:
 undo:
 	@./settings.sh undo
 
+battery:
+	@./scripts/battery.sh
+
 settings-check:
-	@for script in settings.sh shell/setup.sh vim/setup.sh scripts/packages.sh; do \
+	@for script in settings.sh shell/setup.sh vim/setup.sh scripts/*.sh; do \
 		bash -n "$$script" || exit; \
 	done
 
