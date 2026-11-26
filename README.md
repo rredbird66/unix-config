@@ -14,7 +14,7 @@ SSH-пример, Oh My Posh) с настройками GNOME. Всё разво
 | `settings.sh` | GNOME: переключение раскладки `Alt+Shift` и ярлык `Alt+T` для Ptyxis |
 | `shell/` | Starship и управляемый блок для интерактивного Bash |
 | `shell/bashrc.example` | исторический `.bashrc` из `unix-config` (для поиска старых строк Oh My Posh) |
-| `shell/legacy/` | старые файлы Oh My Posh, сохранены для справки и восстановления prompt |
+| `shell/legacy/` | старая тема Oh My Posh, сохранена для восстановления prompt |
 | `vim/` | конфигурация Vim и её установка в `~/.vimrc` |
 | `ssh/config.example` | безопасный пример `~/.ssh/config`, автоматически не устанавливается |
 | `Makefile` | команды `make help/packages/shell/vim/...` |

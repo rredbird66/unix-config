@@ -20,7 +20,7 @@ if !has('gui_running')
    set t_Co=256
 endif
 
-" Встроенная тёмная тема; solarized8 и внешние плагины не нужны.
+" Встроенная тёмная тема; внешние темы и плагины не нужны.
 try
    colorscheme habamax
 catch /^Vim\%((\a\+)\)\=:E185/
