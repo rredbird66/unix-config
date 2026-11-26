@@ -111,7 +111,7 @@ replace_file() {
    local src=$1 dest=$2 mode=$3
    local real dir tmp
    real=$(resolve_path "$dest")
-   [[ -d $real ]] && die "$dest — каталог, ожидался файл"
+   [[ ! -e $real || -f $real ]] || die "$dest не является обычным файлом"
    dir=$(dirname -- "$real")
    mkdir -p -- "$dir" || die "не удалось создать каталог $dir"
    tmp=$(mktemp "$dir/.linux-settings.XXXXXX") ||
@@ -124,7 +124,7 @@ replace_file() {
       rm -f -- "$tmp"
       die "не удалось выставить права на $tmp"
    fi
-   if ! mv -f -- "$tmp" "$real"; then
+   if ! mv -fT -- "$tmp" "$real"; then
       rm -f -- "$tmp"
       die "не удалось заменить $dest"
    fi
@@ -143,7 +143,7 @@ starship_ok() {
    [[ -x $STARSHIP_BIN ]] || return 1
    local out
    out=$("$STARSHIP_BIN" --version 2>/dev/null) || return 1
-   [[ $out == "starship $STARSHIP_VERSION"* ]]
+   [[ ${out%%$'\n'*} == "starship $STARSHIP_VERSION" ]]
 }
 
 verify_sha256() {
@@ -194,23 +194,26 @@ install_starship() {
    mkdir -p -- "$CACHE_DIR" || die "не удалось создать $CACHE_DIR"
    make_work_dir
 
-   local archive="$CACHE_DIR/$asset"
+   local archive="$CACHE_DIR/$asset" download
    if [[ -f $archive ]] && verify_sha256 "$archive" "$expected"; then
       say "Использую ранее скачанный и проверенный архив: $archive"
    else
-      rm -f -- "$archive.part"
+      download=$(mktemp "$CACHE_DIR/$asset.XXXXXX") ||
+         die "не удалось создать временный архив"
       say "Скачиваю Starship $STARSHIP_VERSION для $machine…"
       if ! curl -fL --retry 2 --proto '=https' --tlsv1.2 \
-         -o "$archive.part" "$STARSHIP_RELEASE_URL/$asset"; then
-         rm -f -- "$archive.part"
+         -o "$download" "$STARSHIP_RELEASE_URL/$asset"; then
+         rm -f -- "$download"
          die "не удалось скачать $STARSHIP_RELEASE_URL/$asset. Существующий бинарник не изменён."
       fi
-      if ! verify_sha256 "$archive.part" "$expected"; then
-         rm -f -- "$archive.part"
+      if ! verify_sha256 "$download" "$expected"; then
+         rm -f -- "$download"
          die "архив Starship не прошёл проверку SHA-256. Установка отменена, существующий бинарник не изменён."
       fi
-      mv -f -- "$archive.part" "$archive" ||
+      if ! mv -fT -- "$download" "$archive"; then
+         rm -f -- "$download"
          die "не удалось сохранить архив в $archive"
+      fi
    fi
 
    local extract="$WORK_DIR/extract"
@@ -228,7 +231,7 @@ install_starship() {
    local version
    version=$("$binary" --version 2>/dev/null) ||
       die "скачанный бинарник Starship не запускается"
-   [[ $version == "starship $STARSHIP_VERSION"* ]] ||
+   [[ ${version%%$'\n'*} == "starship $STARSHIP_VERSION" ]] ||
       die "скачанный бинарник сообщает «$version», ожидалась версия $STARSHIP_VERSION"
 
    local tmp
@@ -238,7 +241,7 @@ install_starship() {
       rm -f -- "$tmp"
       die "не удалось подготовить $STARSHIP_BIN"
    fi
-   if ! mv -f -- "$tmp" "$STARSHIP_BIN"; then
+   if ! mv -fT -- "$tmp" "$STARSHIP_BIN"; then
       rm -f -- "$tmp"
       die "не удалось заменить $STARSHIP_BIN"
    fi
@@ -249,17 +252,15 @@ install_starship() {
 # Starship config
 # ---------------------------------------------------------------------------
 
-config_conflict() {
-   [[ -e $STARSHIP_CONFIG || -L $STARSHIP_CONFIG ]] || return 0
-   [[ -d $STARSHIP_CONFIG ]] && return 1
-   cmp -s -- "$STARSHIP_CONFIG_SRC" "$STARSHIP_CONFIG"
+config_matches() {
+   [[ -f $STARSHIP_CONFIG ]] && cmp -s -- "$STARSHIP_CONFIG_SRC" "$STARSHIP_CONFIG"
 }
 
 check_config() {
-   if [[ -d $STARSHIP_CONFIG ]]; then
-      die "$STARSHIP_CONFIG — каталог, ожидался файл. Ничего не изменено."
+   if [[ -e $STARSHIP_CONFIG && ! -f $STARSHIP_CONFIG ]]; then
+      die "$STARSHIP_CONFIG не является обычным файлом. Ничего не изменено."
    fi
-   if config_conflict; then
+   if [[ ! -e $STARSHIP_CONFIG && ! -L $STARSHIP_CONFIG ]] || config_matches; then
       return 0
    fi
    if ((FORCE_CONFIG)); then
@@ -270,15 +271,15 @@ check_config() {
 
 install_config() {
    if [[ -e $STARSHIP_CONFIG || -L $STARSHIP_CONFIG ]]; then
-      if config_conflict; then
+      if config_matches; then
          say "Конфиг Starship уже совпадает: $STARSHIP_CONFIG"
          return 0
       fi
-      if [[ -d $STARSHIP_CONFIG ]]; then
-         die "$STARSHIP_CONFIG — каталог, ожидался файл"
-      fi
+      ((FORCE_CONFIG)) ||
+         die "$STARSHIP_CONFIG изменился во время установки; конфиг и ~/.bashrc оставлены как есть."
       local real backup
       real=$(resolve_path "$STARSHIP_CONFIG")
+      [[ ! -e $real || -f $real ]] || die "$STARSHIP_CONFIG не является обычным файлом"
       if [[ -e $real ]]; then
          backup=$(backup_file "$real")
          say "Резервная копия конфига: $backup"
@@ -298,11 +299,13 @@ make_block() {
    cat >"$block" <<'EOF'
 # >>> linux-settings starship >>>
 # Управляется linux-settings (make shell); не редактируйте блок вручную.
-if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-    export PATH="$HOME/.local/bin:$PATH"
-fi
-if command -v starship >/dev/null 2>&1; then
-    eval "$(starship init bash)"
+if [[ $- == *i* && -x $HOME/.local/bin/starship &&
+      -r ${STARSHIP_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml} ]]; then
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+        export PATH="$HOME/.local/bin:$PATH"
+    fi
+    export STARSHIP_CONFIG="${STARSHIP_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml}"
+    eval "$("$HOME/.local/bin/starship" init bash)"
 fi
 # <<< linux-settings starship <<<
 EOF
@@ -310,14 +313,9 @@ EOF
 
 legacy_init_lines() {
    local out=$1
-   : >"$out"
-   if [[ -f $LEGACY_BASHRC ]]; then
-      grep -F -- 'oh-my-posh --init' "$LEGACY_BASHRC" >"$out" || true
-   else
-      printf '%s\n' \
-         'eval "$(~/.oh_my_posh/oh-my-posh --init --shell bash --config ~/.poshthemes/paradox.omp.json)"' \
-         >>"$out"
-   fi
+   local status=0
+   grep -F -- 'oh-my-posh --init' "$LEGACY_BASHRC" >"$out" || status=$?
+   ((status < 2)) || die "не удалось прочитать $LEGACY_BASHRC"
 }
 
 # Формирует ожидаемый .bashrc в $2, не изменяя настоящий файл.
@@ -332,25 +330,14 @@ build_bashrc() {
    legacy_init_lines "$legacy"
 
    if [[ -f $source_file ]]; then
-      if [[ -s $legacy ]]; then
-         grep -F -x -v -f "$legacy" -- "$source_file" >"$stripped" || true
-      else
-         cat -- "$source_file" >"$stripped"
-      fi
+      local status=0
+      grep -F -x -v -f "$legacy" -- "$source_file" >"$stripped" || status=$?
+      ((status < 2)) || die "не удалось прочитать $source_file"
    else
       : >"$stripped"
    fi
 
-   local begins ends
-   begins=$(grep -F -x -c -- "$BLOCK_BEGIN" "$stripped" || true)
-   ends=$(grep -F -x -c -- "$BLOCK_END" "$stripped" || true)
-   [[ -n $begins ]] || begins=0
-   [[ -n $ends ]] || ends=0
-   if ((begins != ends)); then
-      die "в $source_file повреждён управляемый блок linux-settings (начало: $begins, конец: $ends). Файл не изменён."
-   fi
-
-   awk -v begin="$BLOCK_BEGIN" -v end="$BLOCK_END" -v blockfile="$block" '
+   if ! awk -v begin="$BLOCK_BEGIN" -v end="$BLOCK_END" -v blockfile="$block" '
       BEGIN {
          while ((getline line < blockfile) > 0) {
             block = block line ORS
@@ -359,7 +346,11 @@ build_bashrc() {
          inserted = 0
          inside = 0
       }
-      $0 == begin && !inside {
+      $0 == begin {
+         if (inside) {
+            invalid = 1
+            exit 1
+         }
          if (!inserted) {
             printf "%s", block
             inserted = 1
@@ -367,19 +358,26 @@ build_bashrc() {
          inside = 1
          next
       }
-      inside {
-         if ($0 == end) {
-            inside = 0
+      $0 == end {
+         if (!inside) {
+            invalid = 1
+            exit 1
          }
+         inside = 0
          next
       }
-      { print }
+      !inside { print }
       END {
+         if (invalid || inside) {
+            exit 1
+         }
          if (!inserted) {
             printf "%s", block
          }
       }
-   ' "$stripped" >"$output"
+   ' "$stripped" >"$output"; then
+      die "не удалось подготовить $BASHRC. Проверьте управляемый блок linux-settings; файл не изменён."
+   fi
 }
 
 warn_other_posh() {
@@ -391,29 +389,29 @@ warn_other_posh() {
    done < <(grep -nE '^[[:space:]]*(eval|source)[[:space:]].*oh-my-posh.*--init' "$file" || true)
 }
 
+bashrc_path() {
+   local path
+   path=$(resolve_path "$BASHRC")
+   [[ ! -e $path || -f $path ]] || die "$BASHRC не является обычным файлом"
+   printf '%s' "$path"
+}
+
 update_bashrc() {
-   make_work_dir
    local candidate="$WORK_DIR/bashrc.new"
-   local current_real=''
-
-   if [[ -L $BASHRC ]]; then
-      current_real=$(resolve_path "$BASHRC")
-   elif [[ -e $BASHRC ]]; then
-      current_real=$BASHRC
-   fi
-
+   local current_real
+   current_real=$(bashrc_path)
    build_bashrc "$candidate" "$current_real"
 
-   if [[ -n $current_real ]] && cmp -s -- "$candidate" "$current_real"; then
+   if cmp -s -- "$candidate" "$current_real"; then
       say "Блок Starship в ~/.bashrc уже актуален."
    else
-      if [[ -n $current_real && -e $current_real ]]; then
+      if [[ -e $current_real ]]; then
          local backup
          backup=$(backup_file "$current_real")
          say "Резервная копия ~/.bashrc: $backup"
          replace_file "$candidate" "$BASHRC" "$(file_mode "$current_real")"
          say "Блок Starship обновлён в ~/.bashrc."
-      elif [[ -n $current_real ]]; then
+      elif [[ -L $BASHRC ]]; then
          # ~/.bashrc — висячий симлинк: создаём его цель, сам симлинк сохраняем.
          replace_file "$candidate" "$BASHRC" 0644
          say "Создан целевой файл для ~/.bashrc (симлинк сохранён)."
@@ -439,7 +437,7 @@ check_all() {
       failed=1
    fi
 
-   if [[ -e $STARSHIP_CONFIG || -L $STARSHIP_CONFIG ]] && config_conflict; then
+   if config_matches; then
       say "OK  конфиг: $STARSHIP_CONFIG"
    else
       warn "конфиг отсутствует или отличается: $STARSHIP_CONFIG"
@@ -448,14 +446,13 @@ check_all() {
 
    make_work_dir
    local candidate="$WORK_DIR/bashrc.check"
-   local real=''
-   [[ -L $BASHRC ]] && real=$(resolve_path "$BASHRC")
-   [[ -z $real && -e $BASHRC ]] && real=$BASHRC
+   local real
+   real=$(bashrc_path)
    build_bashrc "$candidate" "$real"
-   if [[ -n $real ]] && cmp -s -- "$candidate" "$real"; then
+   if cmp -s -- "$candidate" "$real"; then
       say "OK  ~/.bashrc: управляемый блок актуален"
    else
-      warn "~/.bashrc: управляемый блок отсутствует или устарел"
+      warn "$BASHRC: управляемый блок отсутствует или устарел"
       failed=1
    fi
    return "$failed"
@@ -485,6 +482,10 @@ main() {
    fi
 
    check_config
+   make_work_dir
+   local bashrc
+   bashrc=$(bashrc_path)
+   build_bashrc "$WORK_DIR/bashrc.preflight" "$bashrc"
    install_starship
    install_config
    update_bashrc

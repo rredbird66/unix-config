@@ -18,12 +18,14 @@ readonly SOURCE="$REPO_DIR/vim/vimrc"
 readonly TARGET="$HOME/.vimrc"
 
 CHECK_ONLY=0
+REPLACE=0
 
 usage() {
    cat <<'EOF'
-Использование: ./vim/setup.sh [--check]
+Использование: ./vim/setup.sh [--check | --replace]
 
-  --check  только сравнить ~/.vimrc с vim/vimrc, ничего не записывая
+  --check    только сравнить ~/.vimrc с vim/vimrc
+  --replace  заменить существующий отличающийся ~/.vimrc с резервной копией
 
 Без sudo. Если ~/.vimrc уже совпадает, файл и резервные копии не трогаются.
 Перед изменением существующего ~/.vimrc создаётся копия
@@ -80,7 +82,7 @@ replace_file() {
       rm -f -- "$tmp"
       die "не удалось выставить права на $tmp"
    fi
-   if ! mv -f -- "$tmp" "$real"; then
+   if ! mv -fT -- "$tmp" "$real"; then
       rm -f -- "$tmp"
       die "не удалось заменить $dest"
    fi
@@ -95,6 +97,7 @@ main() {
    while (($# > 0)); do
       case $1 in
          --check) CHECK_ONLY=1 ;;
+         --replace) REPLACE=1 ;;
          -h | --help | help)
             usage
             return 0
@@ -116,26 +119,27 @@ main() {
    elif [[ -e $TARGET ]]; then
       real=$TARGET
    fi
-   if [[ -n $real && -d $real ]]; then
-      die "$TARGET — каталог, ожидался файл"
+   if [[ -n $real && -e $real && ! -f $real ]]; then
+      die "$TARGET не является обычным файлом"
    fi
 
    if [[ -n $real && -f $real ]] && cmp -s -- "$SOURCE" "$real"; then
-      say "~/.vimrc уже совпадает с vim/vimrc, изменений нет."
+      say "$TARGET уже совпадает с vim/vimrc, изменений нет."
       return 0
    fi
 
    if ((CHECK_ONLY)); then
       if [[ -n $real && -f $real ]]; then
-         say "~/.vimrc отличается от vim/vimrc."
+         say "$TARGET отличается от vim/vimrc."
       else
-         say "~/.vimrc отсутствует."
+         say "$TARGET отсутствует."
       fi
       return 1
    fi
 
    local mode=0644
    if [[ -n $real && -f $real ]]; then
+      ((REPLACE)) || die "$TARGET отличается от vim/vimrc. Для замены с резервной копией: ./vim/setup.sh --replace"
       local backup
       backup=$(backup_file "$real")
       say "Резервная копия ~/.vimrc: $backup"

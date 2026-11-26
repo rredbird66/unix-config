@@ -33,29 +33,11 @@ if ((${#missing[@]} == 0)); then
    exit 0
 fi
 
-say ""
-say "Будут установлены только отсутствующие пакеты: ${missing[*]}"
-if [[ ${LINUX_SETTINGS_YES:-0} != 1 ]]; then
-   answer=''
-   if ! read -r -p "Продолжить установку через sudo dnf? [y/N] " answer; then
-      die "не удалось прочитать подтверждение. Установка отменена."
-   fi
-   case ${answer,,} in
-      y | yes | д | да) ;;
-      *)
-         say "Отменено пользователем. Ничего не изменено."
-         exit 0
-         ;;
-   esac
-fi
-
 command -v sudo >/dev/null 2>&1 ||
    die "не найдена команда sudo. Установите пакеты вручную: dnf install ${missing[*]}"
 command -v dnf >/dev/null 2>&1 ||
    die "не найдена команда dnf. Установите пакеты вручную."
 
-say "Запуск: sudo dnf install -y ${missing[*]}"
-sudo dnf install -y "${missing[@]}"
-
 say ""
-say "Готово: ${missing[*]}"
+say "Запуск: sudo dnf install ${missing[*]}"
+sudo dnf install "${missing[@]}"

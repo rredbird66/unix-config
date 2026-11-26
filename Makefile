@@ -11,7 +11,7 @@ help:
 		'  make packages      проверить vim-enhanced, mc, htop и поставить недостающие через dnf' \
 		'  make shell         установить Starship и управляемый блок в ~/.bashrc' \
 		'  make shell-check   проверить установку Starship без изменений' \
-		'  make vim           записать ~/.vimrc с резервной копией' \
+		'  make vim           установить ~/.vimrc, если его ещё нет' \
 		'  make vim-check     проверить ~/.vimrc без изменений' \
 		'  make status        ./settings.sh status (только чтение)' \
 		'  make apply         ./settings.sh apply (GNOME, без sudo)' \
@@ -47,7 +47,9 @@ undo:
 	@./settings.sh undo
 
 settings-check:
-	@bash -n settings.sh shell/setup.sh vim/setup.sh scripts/packages.sh
+	@for script in settings.sh shell/setup.sh vim/setup.sh scripts/packages.sh; do \
+		bash -n "$$script" || exit; \
+	done
 
 check: settings-check
 	@printf '%s\n' 'Синтаксис скриптов в порядке.'
