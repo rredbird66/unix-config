@@ -256,6 +256,9 @@ config_conflict() {
 }
 
 check_config() {
+   if [[ -d $STARSHIP_CONFIG ]]; then
+      die "$STARSHIP_CONFIG — каталог, ожидался файл. Ничего не изменено."
+   fi
    if config_conflict; then
       return 0
    fi
