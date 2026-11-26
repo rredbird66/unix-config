@@ -1,21 +1,26 @@
+# Пример ~/.ssh/config для linux-settings. Только демонстрационные значения.
+# Скопируйте нужные Host-блоки в ~/.ssh/config и замените адреса/пользователей.
+# Глобального «User root» здесь намеренно нет.
+
 Host targaryen
-    HostName 192.168.1.10
-    User daenerys
-    Port 7654
-    IdentityFile ~/.ssh/targaryen.key
+    HostName 192.0.2.10
+    User demo
+    Port 2222
+    IdentityFile ~/.ssh/demo-targaryen.key
 
 Host tyrell
-    HostName 192.168.10.20
+    HostName 198.51.100.20
+    User demo
 
 Host martell
-    HostName 192.168.10.50
+    HostName 203.0.113.50
+    User demo
 
 Host *ell
-    user oberyn
+    User demo
 
 Host * !martell
     LogLevel INFO
 
 Host *
-    User root
     Compression yes
