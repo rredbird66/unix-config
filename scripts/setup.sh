@@ -81,19 +81,13 @@ readonly CATEGORY_TITLE_EXTRAS='Дополнительные утилиты'
 readonly CATEGORY_TITLE_CONFIG='Настройки'
 
 rpm_label() {
-   local name=$1 group=$2 state=$3 status group_text
+   local name=$1 state=$2 status
    case $state in
       installed) status='уже установлен' ;;
       missing) status='не установлен' ;;
       *) die "packages.sh вернул неизвестное состояние пакета $name: $state" ;;
    esac
-   case $group in
-      base) group_text='базовый' ;;
-      extra) group_text='дополнительный' ;;
-      *) die "packages.sh вернул неизвестную группу пакета $name: $group" ;;
-   esac
-
-   printf 'пакет %s (%s, %s)' "$name" "$group_text" "$status"
+   printf '%s — %s' "$name" "$status"
    if [[ $name == 'vim-enhanced' ]]; then
       printf '; ~/.vimrc не трогает'
    fi
@@ -117,7 +111,7 @@ load_rpm_items() {
       TAG_CATEGORY[$tag]=$category
       TAG_KIND[$tag]=rpm
       TAG_STATUS[$tag]=$state
-      TAG_LABEL[$tag]=$(rpm_label "$name" "$group" "$state")
+      TAG_LABEL[$tag]=$(rpm_label "$name" "$state")
       TAG_SHORT[$tag]=$name
       RPM_TAGS+=("$tag")
 
@@ -208,70 +202,39 @@ check_prerequisites() {
    exec 9>&-
 }
 
-make_temp() {
-   mktemp "${TMPDIR:-/tmp}/linux-settings-menu.XXXXXX" ||
-      die "не удалось создать временный файл"
-}
-
-# Возвращает 0 — OK, 1 — «Назад»/Esc, 2 — ошибка dialog.
-run_checklist() {
-   local title=$1 prompt=$2 output=$3
-   shift 3
-   local rc
-   if dialog --clear --backtitle "$BACKTITLE" --title "$title" \
-      --ok-label 'Сохранить' --cancel-label 'Назад' --no-tags \
-      --separate-output --output-fd 3 \
-      --checklist "$prompt" 20 78 10 "$@" \
-      </dev/tty 2>/dev/tty 3>"$output"; then
-      rc=0
-   else
-      rc=$?
-   fi
-   case $rc in
-      0) return 0 ;;
-      1 | 255) return 1 ;;
-      *)
-         warn "dialog завершился с кодом $rc"
-         return 2
-         ;;
-   esac
+# У dialog ошибки и Esc по умолчанию имеют один код. Ввод и экран идут
+# через терминал, выбранные теги — отдельно через fd 3.
+run_dialog() {
+   DIALOG_OK=0 DIALOG_CANCEL=1 DIALOG_ESC=255 DIALOG_ERROR=2 \
+      dialog --clear --backtitle "$BACKTITLE" "$@" </dev/tty >/dev/tty 2>/dev/tty
 }
 
 # Возвращает 0 — выбран пункт (MAIN_CHOICE), 1 — отмена/Esc, 2 — ошибка.
 run_main_menu() {
-   local output rc
-   output=$(make_temp)
-   local total
+   local total rc
    total=$(count_selected)
-   if dialog --clear --backtitle "$BACKTITLE" --title 'linux-settings' \
-      --cancel-label 'Выход' --ok-label 'Открыть' --output-fd 3 \
+   if MAIN_CHOICE=$(run_dialog --title 'linux-settings' \
+      --cancel-label 'Выход' --ok-label 'Открыть' --no-tags --output-fd 3 \
       --menu 'Выберите раздел. Отметки хранятся до выхода; изменения применяются только после итогового подтверждения.' \
       17 76 6 \
       base "Базовые пакеты — выбрано $(count_category base) из $(category_size base)" \
       extras "Дополнительные утилиты — выбрано $(count_category extras) из $(category_size extras)" \
       config "Настройки — выбрано $(count_category config) из $(category_size config)" \
       apply "Применить выбранное ($total)" \
-      quit 'Выход без изменений' \
-      </dev/tty 2>/dev/tty 3>"$output"; then
+      quit 'Выход без изменений' 3>&1); then
       rc=0
    else
       rc=$?
    fi
    case $rc in
       0) ;;
-      1 | 255)
-         rm -f -- "$output"
-         return 1
-         ;;
+      1 | 255) return 1 ;;
       *)
-         rm -f -- "$output"
          warn "dialog завершился с кодом $rc"
          return 2
          ;;
    esac
 
-   MAIN_CHOICE=$(head -n 1 -- "$output")
-   rm -f -- "$output"
    case $MAIN_CHOICE in
       base | extras | config | apply | quit) return 0 ;;
       *)
@@ -297,7 +260,7 @@ build_items() {
 }
 
 update_category() {
-   local category=$1 file=$2 tag
+   local category=$1 choices=$2 tag
    local -A chosen=()
 
    while IFS= read -r tag; do
@@ -307,7 +270,7 @@ update_category() {
       [[ ${TAG_CATEGORY[$tag]} == "$category" ]] ||
          die "dialog вернул пункт из другой категории: $tag. Ничего не изменено."
       chosen[$tag]=1
-   done <"$file"
+   done <<<"$choices"
 
    # Обновляем только текущую категорию: остальные отметки не трогаем.
    for tag in "${ALL_TAGS[@]}"; do
@@ -322,50 +285,50 @@ update_category() {
 
 edit_category() {
    local category=$1 title=$2 prompt=$3
-   local file rc
-   file=$(make_temp)
+   local choices rc
 
    build_items "$category"
-   if run_checklist "$title" "$prompt" "$file" "${CHECKLIST_ITEMS[@]}"; then
+   if choices=$(run_dialog --title "$title" \
+      --ok-label 'Сохранить' --cancel-label 'Назад' --no-tags \
+      --separate-output --output-fd 3 \
+      --checklist "$prompt" 20 78 10 "${CHECKLIST_ITEMS[@]}" 3>&1); then
       rc=0
    else
       rc=$?
    fi
    case $rc in
       0)
-         update_category "$category" "$file"
+         update_category "$category" "$choices"
          ;;
-      1)
+      1 | 255)
          # «Назад»/Esc: отметки этой категории остаются такими, какими были
          # до входа. Текущие переключения отбрасываются.
          ;;
       *)
-         rm -f -- "$file"
-         die "не удалось получить выбор из dialog. Ничего не применено."
+         die "не удалось получить выбор из dialog (код $rc). Ничего не применено."
          ;;
    esac
-   rm -f -- "$file"
 }
 
 # ---------------------------------------------------------------------------
 # Итоговая сводка и применение
 # ---------------------------------------------------------------------------
 
-summary_line() {
+summary_item() {
    local tag=$1 name=${TAG_SHORT[$1]}
    if [[ ${TAG_KIND[$tag]} == rpm ]]; then
       if [[ ${TAG_STATUS[$tag]} == installed ]]; then
-         printf '  - %s (уже установлен)' "$name"
+         printf '%s (уже установлен)' "$name"
       else
-         printf '  - %s (будет установлен)' "$name"
+         printf '%s' "$name"
       fi
    else
-      printf '  - %s' "$name"
+      printf '%s' "$name"
    fi
 }
 
 build_summary() {
-   local category title tag found rpm_selected=0
+   local category title tag items rpm_selected=0
    local -a lines=('Сводка выбранного:' '')
    for category in base extras config; do
       case $category in
@@ -373,20 +336,16 @@ build_summary() {
          extras) title=$CATEGORY_TITLE_EXTRAS ;;
          config) title=$CATEGORY_TITLE_CONFIG ;;
       esac
-      found=0
+      items=''
       for tag in "${ALL_TAGS[@]}"; do
          [[ ${TAG_CATEGORY[$tag]} == "$category" ]] || continue
          [[ -n ${SELECTED[$tag]+x} ]] || continue
          if [[ ${TAG_KIND[$tag]} == rpm && ${TAG_STATUS[$tag]} == missing ]]; then
             rpm_selected=1
          fi
-         if ((found == 0)); then
-            lines+=("$title:")
-            found=1
-         fi
-         lines+=("$(summary_line "$tag")")
+         items+="${items:+, }$(summary_item "$tag")"
       done
-      ((found == 0)) || lines+=('')
+      [[ -z $items ]] || lines+=("$title:" "$items" '')
    done
    if ((rpm_selected)); then
       lines+=('Продолжить? DNF отдельно покажет транзакцию и спросит подтверждение.')
@@ -428,17 +387,16 @@ confirm_and_apply() {
    local total rc
    total=$(count_selected)
    if ((total == 0)); then
-      dialog --clear --backtitle "$BACKTITLE" --title 'Ничего не выбрано' \
-         --msgbox 'Отметьте хотя бы один пункт в разделах меню.' 8 56 \
-         </dev/tty 2>/dev/tty || true
+      run_dialog --title 'Ничего не выбрано' \
+         --msgbox 'Отметьте хотя бы один пункт в разделах меню.' 8 56 || true
       return 1
    fi
 
    local summary
    summary=$(build_summary)
-   if dialog --clear --backtitle "$BACKTITLE" --title 'Подтверждение' \
+   if run_dialog --title 'Подтверждение' --defaultno \
       --yes-label 'Применить' --no-label 'Вернуться' \
-      --yesno "$summary" 22 78 </dev/tty 2>/dev/tty; then
+      --yesno "$summary" 22 78; then
       rc=0
    else
       rc=$?
@@ -459,7 +417,7 @@ confirm_and_apply() {
    else
       rc=$?
       printf 'Ошибка: выполнение остановлено (код %d). Следующие выбранные действия не запускались.\n' "$rc" >&2
-      exit "$rc"
+       exit 1
    fi
 }
 
@@ -468,6 +426,10 @@ confirm_and_apply() {
 # ---------------------------------------------------------------------------
 
 main() {
+   if (($# > 1)); then
+      usage >&2
+      return 2
+   fi
    case ${1:-} in
       '') ;;
       -h | --help | help)
