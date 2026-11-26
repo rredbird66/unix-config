@@ -404,12 +404,16 @@ update_bashrc() {
    if [[ -n $current_real ]] && cmp -s -- "$candidate" "$current_real"; then
       say "Блок Starship в ~/.bashrc уже актуален."
    else
-      if [[ -n $current_real ]]; then
+      if [[ -n $current_real && -e $current_real ]]; then
          local backup
          backup=$(backup_file "$current_real")
          say "Резервная копия ~/.bashrc: $backup"
          replace_file "$candidate" "$BASHRC" "$(file_mode "$current_real")"
          say "Блок Starship обновлён в ~/.bashrc."
+      elif [[ -n $current_real ]]; then
+         # ~/.bashrc — висячий симлинк: создаём его цель, сам симлинк сохраняем.
+         replace_file "$candidate" "$BASHRC" 0644
+         say "Создан целевой файл для ~/.bashrc (симлинк сохранён)."
       else
          replace_file "$candidate" "$BASHRC" 0644
          say "Создан ~/.bashrc с блоком Starship."
