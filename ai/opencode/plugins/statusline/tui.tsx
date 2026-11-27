@@ -248,7 +248,8 @@ async function fetchKimi(credential: any): Promise<Provider | undefined> {
 }
 
 async function fetchGo(client: any, location: any): Promise<Provider | undefined> {
-  const response: any = await client.usage.limits({ location })
+  const usage = client.experimental?.usage ?? client.usage
+  const response: any = await usage.limits({ location })
   const data = response?.data ?? response
   const go = data?.go
   if (!go) return undefined
