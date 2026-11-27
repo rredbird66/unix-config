@@ -16,6 +16,7 @@ SSH-пример, Oh My Posh) с настройками GNOME. Всё разво
 | `shell/bashrc.example` | исторический `.bashrc` из `unix-config` (для поиска старых строк Oh My Posh) |
 | `shell/legacy/` | старая тема Oh My Posh, сохранена для восстановления prompt |
 | `vim/` | конфигурация Vim и её установка в `~/.vimrc` |
+| `ai/opencode/` | TUI-плагин statusline для OpenCode (лимиты OpenAI, Kimi и Go) |
 | `ssh/config.example` | безопасный пример `~/.ssh/config`, автоматически не устанавливается |
 | `Makefile` | команды `make help/setup/packages/shell/vim/...` |
 | `scripts/` | меню `make setup`, установка пакетов, диагностика и отчёт о состоянии батареи |
