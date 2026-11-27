@@ -21,15 +21,18 @@ SSH-пример, Oh My Posh) с настройками GNOME. Всё разво
 | `Makefile` | команды `make help/setup/packages/shell/vim/...` |
 | `scripts/` | меню `make setup`, установка пакетов, диагностика и отчёт о состоянии батареи |
 | `tests/gnome.sh` | проверки `settings.sh` в изолированном профиле |
-| `manuals/` | шпаргалки по утилитам, Vim и Linux |
+| `manuals/` | шпаргалки по Bash, Git, SSH, утилитам, Vim, архивам, системе и контейнерам |
 
 ## Шпаргалки
 
-- [Терминальные утилиты: SSH, поиск, навигация и мониторы](manuals/utilities.md)
+- [Bash: файлы, процессы и сеть](manuals/linux.md)
+- [Git: ежедневная работа](manuals/git.md)
+- [SSH и scp: вход и копирование](manuals/ssh.md)
+- [Терминальные утилиты: поиск, навигация и мониторы](manuals/utilities.md)
 - [Vim: основные команды и управление](manuals/vim.md)
-- [Bash и файловые команды](manuals/linux.md)
 - [Архивы: tar, ZIP и ar](manuals/archives.md)
-- [Системное администрирование: пакеты, диски, службы и Docker](manuals/system.md)
+- [Системное администрирование: пакеты, диски, службы и безопасность](manuals/system.md)
+- [Контейнеры: Podman и Docker](manuals/containers.md)
 
 ## Зависимости
 
