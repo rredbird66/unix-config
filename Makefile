@@ -10,7 +10,7 @@ help:
 		'  make help          показать эту справку (цель по умолчанию)' \
 		'  make setup         интерактивное меню по категориям (нужен dialog и TTY)' \
 		'  make packages      проверить vim-enhanced, mc, htop и поставить недостающие через dnf' \
-		'  make extras        поставить недостающие ripgrep, fd-find, fzf, zoxide, btop и tmux' \
+		'  make extras        поставить ripgrep, fd-find, fzf, zoxide, btop, tmux и Docker' \
 		'  make shell         установить Starship и управляемый блок в ~/.bashrc' \
 		'  make shell-check   проверить установку Starship без изменений' \
 		'  make vim           установить ~/.vimrc, если его ещё нет' \

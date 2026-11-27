@@ -53,7 +53,7 @@ refuse() {
       printf 'make setup: %s\n\n' "$1"
       printf 'Отдельные цели без меню:\n'
       printf '  make packages  — vim-enhanced, mc, htop\n'
-      printf '  make extras    — ripgrep, fd-find, fzf, zoxide, btop, tmux\n'
+      printf '  make extras    — ripgrep, fd-find, fzf, zoxide, btop, tmux и Docker\n'
       printf '  make shell     — Starship и блок Bash\n'
       printf '  make vim       — ~/.vimrc, если своего файла нет\n'
       printf '  make apply     — GNOME Alt+Shift и Alt+T\n'
@@ -81,15 +81,21 @@ readonly CATEGORY_TITLE_EXTRAS='Дополнительные утилиты'
 readonly CATEGORY_TITLE_CONFIG='Настройки'
 
 rpm_label() {
-   local name=$1 state=$2 status
+   local name=$1 state=$2 status label
    case $state in
       installed) status='уже установлен' ;;
       missing) status='не установлен' ;;
       *) die "packages.sh вернул неизвестное состояние пакета $name: $state" ;;
    esac
-   printf '%s — %s' "$name" "$status"
+   label=$name
+   if [[ $name == 'docker-ce' ]]; then
+      label='Docker Engine (docker-ce)'
+   fi
+   printf '%s — %s' "$label" "$status"
    if [[ $name == 'vim-enhanced' ]]; then
       printf '; ~/.vimrc не трогает'
+   elif [[ $name == 'docker-ce' ]]; then
+      printf '; официальный репозиторий Docker'
    fi
 }
 
@@ -112,7 +118,11 @@ load_rpm_items() {
       TAG_KIND[$tag]=rpm
       TAG_STATUS[$tag]=$state
       TAG_LABEL[$tag]=$(rpm_label "$name" "$state")
-      TAG_SHORT[$tag]=$name
+      if [[ $name == 'docker-ce' ]]; then
+         TAG_SHORT[$tag]='Docker Engine'
+      else
+         TAG_SHORT[$tag]=$name
+      fi
       RPM_TAGS+=("$tag")
 
       # По умолчанию отмечены только отсутствующие базовые пакеты.
@@ -347,6 +357,9 @@ build_summary() {
       done
       [[ -z $items ]] || lines+=("$title:" "$items" '')
    done
+   if [[ -n ${SELECTED[rpm:docker-ce]+x} && ${TAG_STATUS[rpm:docker-ce]} == missing ]]; then
+      lines+=('Docker Engine: подключение репозитория при необходимости и запуск службы.' '')
+   fi
    if ((rpm_selected)); then
       lines+=('Продолжить? DNF отдельно покажет транзакцию и спросит подтверждение.')
    else

@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 #
-# scripts/packages.sh — проверяет и при необходимости устанавливает RPM.
-# Это единственное место репозитория, где используется sudo.
+# scripts/packages.sh — проверяет и устанавливает RPM; для Docker подключает
+# официальный репозиторий. Это единственное место репозитория, где используется sudo.
 set -euo pipefail
 
 readonly BASE_PACKAGES=(vim-enhanced mc htop)
-readonly EXTRA_PACKAGES=(ripgrep fd-find fzf zoxide btop tmux)
+readonly EXTRA_PACKAGES=(ripgrep fd-find fzf zoxide btop tmux docker-ce)
+readonly DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
+readonly DOCKER_REPO_ID='docker-ce-stable'
+readonly DOCKER_REPO_URL='https://download.docker.com/linux/fedora/docker-ce.repo'
 
 usage() {
    printf 'Использование: %s [--extras | --check | --list-rpm | --install-selected PACKAGE...]\n' "$0"
@@ -24,14 +27,45 @@ command -v rpm >/dev/null 2>&1 ||
    die "не найдена команда rpm. Этот шаг рассчитан на Fedora."
 
 missing=()
+
+docker_installed() {
+   local package
+   for package in "${DOCKER_PACKAGES[@]}"; do
+      rpm -q --quiet "$package" || return 1
+   done
+}
+
+package_installed() {
+   if [[ $1 == 'docker-ce' ]]; then
+      docker_installed
+   else
+      rpm -q --quiet "$1"
+   fi
+}
+
+package_display() {
+   case $1 in
+      docker-ce) printf 'Docker Engine (docker-ce)' ;;
+      *) printf '%s' "$1" ;;
+   esac
+}
+
+package_state() {
+   if package_installed "$1"; then
+      printf 'installed'
+   else
+      printf 'missing'
+   fi
+}
+
 scan_packages() {
    local package
    missing=()
    for package in "$@"; do
-      if rpm -q --quiet "$package"; then
-         say "  установлен: $package"
+      if package_installed "$package"; then
+         say "  установлен: $(package_display "$package")"
       else
-         say "  отсутствует: $package"
+         say "  отсутствует: $(package_display "$package")"
          missing+=("$package")
       fi
    done
@@ -41,17 +75,11 @@ scan_packages() {
 list_rpm() {
    local package state
    for package in "${BASE_PACKAGES[@]}"; do
-      state=missing
-      if rpm -q --quiet "$package"; then
-         state=installed
-      fi
+      state=$(package_state "$package")
       printf 'base\t%s\t%s\n' "$package" "$state"
    done
    for package in "${EXTRA_PACKAGES[@]}"; do
-      state=missing
-      if rpm -q --quiet "$package"; then
-         state=installed
-      fi
+      state=$(package_state "$package")
       printf 'extra\t%s\t%s\n' "$package" "$state"
    done
 }
@@ -66,6 +94,33 @@ known_package() {
    return 1
 }
 
+install_docker() {
+   if docker_installed; then
+      say "Docker уже установлен; изменений нет."
+      return 0
+   fi
+
+   say ""
+   local repos
+   repos=$(dnf --quiet repo list --all --json "$DOCKER_REPO_ID") ||
+      die "не удалось проверить наличие репозитория $DOCKER_REPO_ID"
+   if [[ $repos == *"\"$DOCKER_REPO_ID\""* ]]; then
+      say "Docker: использую уже настроенный репозиторий $DOCKER_REPO_ID."
+   else
+      dnf config-manager --help >/dev/null 2>&1 ||
+         die "не найден dnf config-manager. Установите dnf5-plugins: sudo dnf install dnf5-plugins"
+      say "Docker: добавляю официальный репозиторий Docker."
+      sudo dnf config-manager addrepo --from-repofile "$DOCKER_REPO_URL"
+   fi
+   say "Запуск: sudo dnf install ${DOCKER_PACKAGES[*]}"
+   sudo dnf install "${DOCKER_PACKAGES[@]}"
+
+   if command -v systemctl >/dev/null 2>&1; then
+      say "Включаю службу docker."
+      sudo systemctl enable --now docker
+   fi
+}
+
 install_missing() {
    if ((${#missing[@]} == 0)); then
       say "Все пакеты выбранного набора уже установлены; sudo не требуется."
@@ -77,9 +132,24 @@ install_missing() {
    command -v dnf >/dev/null 2>&1 ||
       die "не найдена команда dnf. Установите пакеты вручную."
 
-   say ""
-   say "Запуск: sudo dnf install ${missing[*]}"
-   sudo dnf install "${missing[@]}"
+   local -a rpms=() docker=()
+   local package
+   for package in "${missing[@]}"; do
+      if [[ $package == 'docker-ce' ]]; then
+         docker+=("$package")
+      else
+         rpms+=("$package")
+      fi
+   done
+
+   if ((${#rpms[@]})); then
+      say ""
+      say "Запуск: sudo dnf install ${rpms[*]}"
+      sudo dnf install "${rpms[@]}"
+   fi
+   if ((${#docker[@]})); then
+      install_docker
+   fi
 }
 
 install_selected() {
