@@ -100,6 +100,15 @@ function formatReset(at: number, now: number) {
   return restHours ? `${days}d ${restHours}h` : `${days}d`
 }
 
+function formatDate(at: number) {
+  try {
+    return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+  } catch {
+    const date = new Date(at)
+    return `${date.getDate()}.${String(date.getMonth() + 1).padStart(2, "0")}`
+  }
+}
+
 const BAR_CELLS = 5
 const PARTIAL = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"]
 
@@ -389,8 +398,12 @@ function providerSegments(
     const wantReset =
       variant.reset === "all" ||
       (variant.reset === "high" && (window.limited || window.percent >= 50))
-    if (wantReset && window === primary && window.resetsAt) {
-      segments.push({ text: ` (${formatReset(window.resetsAt, now)})`, fg: palette.faint })
+    if (window.resetsAt) {
+      if (window.label === "30d" && variant.reset !== "none") {
+        segments.push({ text: ` (${formatDate(window.resetsAt)})`, fg: palette.faint })
+      } else if (wantReset && window === primary) {
+        segments.push({ text: ` (${formatReset(window.resetsAt, now)})`, fg: palette.faint })
+      }
     }
   })
   return segments
